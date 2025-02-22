@@ -1,94 +1,72 @@
 import torch
-import torchvision
-from torch.autograd import Variable
-from torchvision import datasets
-from torchvision.transforms import transforms
-from torch.utils.data import DataLoader
-from torch.utils.data import Dataset
+from torchvision import models, transforms, datasets
 import numpy as np
-from skimage import io
-from skimage.transform import resize
-from skimage.color import gray2rgb
-import glob
-import PIL
-from PIL import Image
-import matplotlib.pyplot as plt
 
-
-def read_img(file_name):
-    img = io.imread(file_name)
-    if img.ndim == 2:
-      img = gray2rgb(img)
-    img = [resize(img, (224, 224))]
-    img = torch.tensor(img)
-    img = img.permute(0, 3, 1, 2)
-    return img.float()
-
-
-classes = ["Airplane", "Car", "Motorcycle"]
-
-transform = transforms.Compose([
-    torchvision.transforms.Resize((224, 224)),
-    torchvision.transforms.ColorJitter(hue=.05, saturation=.05),
-    torchvision.transforms.RandomHorizontalFlip(),
-    torchvision.transforms.RandomRotation(20, interpolation=PIL.Image.BILINEAR),
-    transforms.ToTensor()
+transformations = transforms.Compose([
+    transforms.Resize(256),
+    transforms.CenterCrop(224),
+    transforms.ToTensor(),
+    transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
 ])
 
+dataset = datasets.ImageFolder(root='./data', transform=transformations)
+data_loader = torch.utils.data.DataLoader(dataset, batch_size=64, shuffle=True)
 
-class CustomDataset(Dataset):
-    def __init__(self, images_dir):
-        self.images_dir = images_dir
-        self.transforms = transforms
+device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+model = models.vgg16(weights='DEFAULT').to(device)
+model.eval()
 
-        # change number 1: change paths
-        self.class1_files = glob.glob(self.images_dir + "/{}/images/*.jpg".format(classes[0].lower()))
-        self.class2_files = glob.glob(self.images_dir + "/{}/images/*.jpg".format(classes[1].lower()))
-        self.class3_files = glob.glob(self.images_dir + "/{}/images/*.jpg".format(classes[2].lower()))
-        self.class1 = len(self.class1_files)
-        self.class2 = len(self.class2_files)
-        self.class3 = len(self.class3_files)
+imagenet_classes = open("imagenet_classes.txt").read().splitlines()
 
-        self.files = self.class1_files + self.class2_files + self.class3_files
+label_map = {
+    'car': [436, 468, 511, 661, 609, 627, 656, 675, 717, 734, 751, 817, 864, 555, 581],
+    'airplane': [403, 404, 895, 908],
+    'motorcycle': [665, 670, 671]
+}
 
-        # change number 2: if there was issues with number of samples set labels
-        self.labels = np.zeros(len(self.files))
-        self.labels[self.class1:] = 1
+tp, fp, tn, fn = 0, 0, 0, 0
+ground_truths = []
+predictions = []
 
-        # shuffle data
-        self.order = [x for x in np.random.permutation(len(self.labels))]
-        self.files = [self.files[x] for x in self.order]
-        self.labels = [self.labels[x] for x in self.order]
+with torch.no_grad():
+    for images, labels in data_loader:
+        images = images.to(device)
 
-    def __len__(self):
-        return (len(self.labels))
+        outputs = model(images)
+        probabilities = torch.nn.functional.softmax(outputs, dim=1)
+        model_predictions = torch.argmax(probabilities, dim=1)
 
-    def __getitem__(self, i):
-        files = self.files[i]
+        for idx, pred in enumerate(model_predictions.cpu().numpy()):
+            predicted_label = None
+            for category, indices in label_map.items():
+                if pred in indices:
+                    predicted_label = category
+                    break
+            if predicted_label is None:
+                predicted_label = "Unknown"
 
-        im = read_img(files)[0]
+            true_label = dataset.classes[labels[idx]]
 
-        img = np.array(im.numpy())
-        img = torch.tensor(img)
+            ground_truths.append(true_label)
+            predictions.append(predicted_label)
 
-        y = self.labels[i]
-        return (img, y)
+            if predicted_label == true_label:
+                tp += 1
+            else:
+                fp += 1
 
+ground_truths = np.array(ground_truths)
+predictions = np.array(predictions)
 
-# change number 1: change paths
-dataset = CustomDataset("./data")
+tn = np.sum(np.bitwise_and(predictions != ground_truths, ground_truths != "Unknown"))
+fn = np.sum(np.bitwise_and(predictions == "Unknown", ground_truths != "Unknown"))
 
-len(dataset)
+accuracy = (tp + tn) / (tp + tn + fp + fn)
+recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+f1 = 2 * (recall * precision) / (recall + precision)
 
-for i in [0, 10]:
-    sample = dataset[i]
-    print(sample[0].shape, sample[1])
-
-train_dataset = torch.utils.data.DataLoader(dataset, batch_size=10, shuffle=True)
-
-images, labels = next(iter(train_dataset))
-images.shape
-
-print(images[0].shape)
-im = images[0].permute(2, 1, 0)
-plt.imshow(im)
+print(f"Accuracy: {accuracy:.2f}")
+print(f"Recall: {recall:.2f}")
+print(f"Precision: {precision:.2f}")
+print(f"F1 Score: {f1:.2f}")

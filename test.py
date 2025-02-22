@@ -1,47 +1,54 @@
-from torchvision import transforms
+import torch
+from torchvision import models, transforms
 from PIL import Image
-import matplotlib.pyplot as plt
-import numpy as np
 
-# Load your image
-image = Image.open("data/airplane/images/00a21fb1ed2af5e6.jpg")  # Replace with your image path
+device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+model = models.vgg16(pretrained=True).to(device)
+model.eval()
 
-# Define the normalization transformation
-normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                 std=[0.229, 0.224, 0.225])
-
-# Create a transform pipeline including ToTensor and Normalize
-transform = transforms.Compose([
+transformations = transforms.Compose([
+    transforms.Resize(256),
+    transforms.CenterCrop(224),
     transforms.ToTensor(),
-    normalize
+    transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
 ])
 
-# Apply the transformation to the image
-transformed_image = transform(image)
+# label_map = {
+#     'Car': ['beach wagon, station wagon, wagon, estate car, beach waggon, station waggon, waggon',
+#             'cab, hack, taxi, taxicab',
+#             'convertible',
+#             'Model T',
+#             'jeep, landrover',
+#             'limousine, limo',
+#             'minivan',
+#             'moving van',
+#             'pickup, pickup truck',
+#             'police van, police wagon, paddy wagon, patrol wagon, wagon, black Maria',
+#             'racer, race car, racing car',
+#             'sports car, sport car',],
+#     'Airplane': ['airliner', 'warplane, military plane'],
+#     'Motorcycle': ['moped', 'motor scooter, scooter', 'mountain bike, all-terrain bike, off-roader']
+# }
 
-# Convert the transformed image back to a displayable format
-# Note: Denormalization might not be perfectly accurate, but it gives an idea
-# of the transformed image's appearance.
-def denormalize(tensor, mean, std):
-    mean = np.array(mean)
-    std = np.array(std)
-    _tensor = tensor.numpy()
-    _tensor = (_tensor * std[:, None, None] + mean[:, None, None])
-    _tensor = _tensor.clip(0, 1) # clip values to [0, 1]
-    return _tensor
+label_map = {
+    'Car': [436, 468, 511, 661, 609, 627, 656, 675, 717, 734, 751, 817, 864],
+    'Airplane': [404, 895],
+    'Motorcycle': [665, 670, 671]
+}
 
-denormalized_image = denormalize(transformed_image, [0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 
-# Display the original and normalized images
-plt.figure(figsize=(10, 5))
-plt.subplot(1, 2, 1)
-plt.title("Original Image")
-plt.imshow(image)
-plt.axis("off")
+def get_predicted_class(predictions, label_map):
+    for label, classes in label_map.items():
+        for cls in classes:
+            if cls in predictions:
+                return label
+    return None
 
-plt.subplot(1, 2, 2)
-plt.title("Normalized Image (Approximation)")
-plt.imshow(transformed_image.transpose(1, 2, 0)) # Transpose to (H, W, C)
-plt.axis("off")
 
-plt.show()
+img = Image.open('data/car/images/000eba40a5b0dce6.jpg')
+output = model(transformations(img).unsqueeze(0).to(device))
+with open('imagenet_classes.txt', 'r') as fid:
+  class_names = fid.readlines()
+predicted_class = get_predicted_class(class_names[torch.argmax(output)], label_map)
+
+print(f'Predicted class: {class_names[torch.argmax(output)]}')
