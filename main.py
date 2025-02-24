@@ -24,6 +24,12 @@ label_map = {
     'motorcycle': [665, 670, 671]
 }
 
+thresholds = {
+    'car': 0.5,
+    'airplane': 0.5,
+    'motorcycle': 0.5
+}
+
 tp, fp, tn, fn = 0, 0, 0, 0
 ground_truths = []
 predictions = []
@@ -34,22 +40,23 @@ with torch.no_grad():
 
         outputs = model(images)
         probabilities = torch.nn.functional.softmax(outputs, dim=1)
-        model_predictions = torch.argmax(probabilities, dim=1)
 
-        for idx, pred in enumerate(model_predictions.cpu().numpy()):
-            predicted_label = None
-            for category, indices in label_map.items():
-                if pred in indices:
-                    predicted_label = category
-                    break
-            if predicted_label is None:
-                predicted_label = "Unknown"
-
+        for idx, probs in enumerate(probabilities):
+            predicted_label = "Unknown"
+            max_prob = 0
             true_label = dataset.classes[labels[idx]]
+            # print(f"--Image {idx}: True label - {true_label}--")
+            for category, indices in label_map.items():
+                category_prob = sum(probs[i] for i in indices)
+
+                if category_prob > thresholds[category] and category_prob > max_prob:
+                    predicted_label = category
+                    max_prob = category_prob
+                # print(f"Category: {category}, Probability: {category_prob}")
 
             ground_truths.append(true_label)
             predictions.append(predicted_label)
-
+            # print(f"Predicted label: {predicted_label}")
             if predicted_label == true_label:
                 tp += 1
             else:
