@@ -1,6 +1,7 @@
 import torch
 from torchvision import models, transforms, datasets
 import numpy as np
+from sklearn.metrics import accuracy_score, recall_score, precision_score, f1_score
 
 transformations = transforms.Compose([
     transforms.Resize(256),
@@ -30,7 +31,6 @@ thresholds = {
     'motorcycle': 0.5
 }
 
-tp, fp, tn, fn = 0, 0, 0, 0
 ground_truths = []
 predictions = []
 
@@ -57,23 +57,17 @@ with torch.no_grad():
             ground_truths.append(true_label)
             predictions.append(predicted_label)
             # print(f"Predicted label: {predicted_label}")
-            if predicted_label == true_label:
-                tp += 1
-            else:
-                fp += 1
 
 ground_truths = np.array(ground_truths)
 predictions = np.array(predictions)
 
-tn = np.sum(np.bitwise_and(predictions != ground_truths, ground_truths != "Unknown"))
-fn = np.sum(np.bitwise_and(predictions == "Unknown", ground_truths != "Unknown"))
+lab = ['car', 'airplane', 'motorcycle']
+accuracy = accuracy_score(ground_truths, predictions)
+recall = recall_score(ground_truths, predictions, average=None, labels=lab)
+precision = precision_score(ground_truths, predictions, average=None, labels=lab)
+f1 = f1_score(ground_truths, predictions, average=None, labels=lab)
 
-accuracy = (tp + tn) / (tp + tn + fp + fn)
-recall = tp / (tp + fn) if (tp + fn) > 0 else 0
-precision = tp / (tp + fp) if (tp + fp) > 0 else 0
-f1 = 2 * (recall * precision) / (recall + precision)
-
-print(f"Accuracy: {accuracy:.2f}")
-print(f"Recall: {recall:.2f}")
-print(f"Precision: {precision:.2f}")
-print(f"F1 Score: {f1:.2f}")
+print(f"Accuracy: {accuracy}")
+print(f"Recall - car: {recall[0]:.2f}, airplane {recall[1]:.2f}, motorcycle {recall[2]:.2f}")
+print(f"Precision - car: {precision[0]:.2f}, airplane {precision[1]:.2f}, motorcycle {precision[2]:.2f}")
+print(f"F1 score - car: {f1[0]:.2f}, airplane {f1[1]}, motorcycle {f1[2]:.2f}")
